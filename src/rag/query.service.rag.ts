@@ -1,14 +1,14 @@
 import {Prisma} from "../generated/prisma/client";
 import prisma from '../config/database.config';
 import qdrantClient from '../config/qdrant.config';
-import embeddingService from './embedding.service';
-import llmService from './llm.service';
+import embeddingService from './embedding.service.rag';
+import llmService from './llm.service.rag';
 import redisClient from '../config/redis.config';
 import {
     QueryRequestBody,
     QueryResponse,
     SourceDocument,
-} from '../models/types';
+} from '../models/query.request.types';
 
 class QueryService {
     private defaultTopK = 5;

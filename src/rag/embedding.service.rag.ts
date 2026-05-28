@@ -11,7 +11,7 @@ class EmbeddingService {
 
     async generateEmbedding(text: string): Promise<number[]> {
         const response = await this.ai.models.embedContent({
-            model: "gemini-embedding-2",
+            model: process.env.EMBEDDING_MODEL!,
             contents: text,
             config: {
                 outputDimensionality: 1536,
@@ -26,7 +26,7 @@ class EmbeddingService {
 
         for (const text of texts) {
             const response = await this.ai.models.embedContent({
-                model: "gemini-embedding-2",
+                model:  process.env.EMBEDDING_MODEL!,
                 contents: text,
                 config: {
                     outputDimensionality: 1536,

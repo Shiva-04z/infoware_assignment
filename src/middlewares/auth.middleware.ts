@@ -1,41 +1,106 @@
-// src/middleware/auth.middleware.ts
-import { Request, Response, NextFunction } from 'express';
-import prisma from '../config/database';
+import {
+    Request,
+    Response,
+    NextFunction,
+} from 'express';
 
-export const tenantAuthMiddleware = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-) => {
-    const tenantId = req.params.tenantId;
-    const apiKey = req.headers['x-api-key'] as string;
+import prisma from '../config/database.config';
 
-    if (!tenantId) {
-        return res.status(400).json({ error: 'Tenant ID is required' });
-    }
+import {
+    verifyAuthToken,
+} from '../utils/jwt.utils';
 
-    if (!apiKey) {
-        return res.status(401).json({ error: 'API key is required' });
-    }
+import {
+    errorResponse,
+} from '../utils/response.utils';
 
-    try {
-        const tenant = await prisma.tenant.findFirst({
-            where: {
-                id: tenantId,
-                apiKey: apiKey,
-                status: 'ACTIVE',
-            },
-        });
+export const tenantAuthMiddleware =
+    async (
+        req: Request,
+        res: Response,
+        next: NextFunction,
+    ) => {
+        try {
+            const { tenantId } =
+                req.params;
 
-        if (!tenant) {
-            return res.status(403).json({ error: 'Invalid tenant or API key' });
+            const token =
+                req.headers.authorization?.replace(
+                    'Bearer ',
+                    '',
+                );
+
+            if (!tenantId) {
+                return errorResponse(
+                    res,
+                    400,
+                    'Tenant ID is required',
+                );
+            }
+
+            if (!token) {
+                return errorResponse(
+                    res,
+                    401,
+                    'Authorization token is required',
+                );
+            }
+
+            const decoded =
+                verifyAuthToken(
+                    token,
+                ) as {
+                    tenantId: string;
+                    email: string;
+                };
+
+            if (
+                decoded.tenantId !==
+                tenantId
+            ) {
+                return errorResponse(
+                    res,
+                    403,
+                    'Invalid tenant access',
+                );
+            }
+
+            const tenant =
+                await prisma.tenant.findFirst({
+                    where: {
+                        id: tenantId,
+                        email:
+                        decoded.email,
+                        status: 'ACTIVE',
+                    },
+                });
+
+            if (!tenant) {
+                return errorResponse(
+                    res,
+                    403,
+                    'Invalid tenant',
+                );
+            }
+
+            (
+                req as Request & {
+                    tenant: typeof tenant;
+                }
+            ).tenant = tenant;
+
+            next();
+        } catch (error) {
+            console.error(
+                'Auth error:',
+                error,
+            );
+
+            return errorResponse(
+                res,
+                401,
+                'Authentication failed',
+                error,
+            );
         }
-
-        // Attach tenant to request for later use
-        (req as any).tenant = tenant;
-        next();
-    } catch (error) {
-        console.error('Auth error:', error);
-        return res.status(500).json({ error: 'Authentication failed' });
-    }
-};
+    };

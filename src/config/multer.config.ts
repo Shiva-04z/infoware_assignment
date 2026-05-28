@@ -2,7 +2,7 @@
 
 import multer from 'multer';
 
-export const documentUploadMiddleware = multer({
+export const uploadFile = multer({
     limits: {
         fileSize: 10 * 1024 * 1024, // 10MB
     },

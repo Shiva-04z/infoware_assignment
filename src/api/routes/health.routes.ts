@@ -1,8 +1,8 @@
-// src/api/routes/health.routes.ts
+
 import { Router } from 'express';
-import prisma from '../config/database.config';
-import qdrantClient from '../config/qdrant.config';
-import redisClient from '../config/redis.config';
+import prisma from '../../config/database.config';
+import qdrantClient from '../../config/qdrant.config';
+import redisClient from '../../config/redis.config';
 
 const router = Router();
 

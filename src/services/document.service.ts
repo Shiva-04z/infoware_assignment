@@ -1,8 +1,9 @@
 import prisma from '../config/database.config';
 import qdrantClient from '../config/qdrant.config';
-import embeddingService from './embedding.service.rag';
+import embeddingService from '../rag/embedding.service.rag';
 import { v4 as uuidv4 } from 'uuid';
 import pdfParse, { Result } from 'pdf-parse';
+import {ChunkRow} from '../models/types';
 
 class DocumentServiceRag {
     private chunkSize = 1000;
@@ -163,26 +164,67 @@ class DocumentServiceRag {
         return { documents, total, page, limit };
     }
 
+
     async deleteDocument(tenantId: string, documentId: string) {
-        const chunks = await prisma.documentChunk.findMany({
-            where: { documentId, tenantId },
-            select: { vectorId: true },
-        });
+        const BATCH_SIZE = 500;
+        let cursor: string | undefined = undefined;
 
+        try {
+            while (true) {
+                const chunks: ChunkRow[] = await prisma.documentChunk.findMany({
+                    where: {
+                        documentId,
+                        tenantId,
+                    },
+                    select: {
+                        id: true,
+                        vectorId: true,
+                    },
+                    take: BATCH_SIZE,
+                    ...(cursor
+                        ? {
+                            skip: 1,
+                            cursor: { id: cursor },
+                        }
+                        : {}),
+                    orderBy: { id: 'asc' },
+                });
 
-        const vectorIds = chunks.map(c => c.vectorId);
-        if (vectorIds.length > 0) {
-            await qdrantClient.delete('document_chunks', {
-                points: vectorIds,
+                if (chunks.length === 0) break;
+
+                const vectorIds: string[] = chunks.map((c: ChunkRow) => c.vectorId);
+
+                if (vectorIds.length > 0) {
+                    await qdrantClient.delete('document_chunks', {
+                        points: vectorIds,
+                    });
+                }
+
+                await prisma.documentChunk.deleteMany({
+                    where: {
+                        id: { in: chunks.map((c: ChunkRow) => c.id) },
+                        tenantId,
+                    },
+                });
+
+                cursor = chunks[chunks.length - 1].id;
+            }
+
+            await prisma.document.update({
+                where: {
+                    id: documentId,
+                    tenantId,
+                },
+                data: {
+                    status: 'DELETED',
+                },
             });
+
+            return { success: true };
+        } catch (error) {
+            console.error('Error deleting document:', error);
+            throw error;
         }
-
-        await prisma.document.update({
-            where: { id: documentId, tenantId },
-            data: { status: 'DELETED' },
-        });
-
-        return { success: true };
     }
 }
 

@@ -1,82 +1,59 @@
-// src/api/routes/tenant.routes.ts
+
+
 import { Router } from 'express';
-import prisma from '../../config/database';
-import { v4 as uuidv4 } from 'uuid';
-import { CreateTenantRequest } from '../../types';
+import { validateBody,validateQuery,validateParams } from '../../middlewares/validation.middleware';
+
+
+import {
+    createTenant,
+    fetchTenant,
+    refreshAuthToken,
+    loginTenant
+} from '../controllers/tenant.controller';
+
+
+import {
+    createTenantSchema,
+    refreshAuthTokenSchema,
+    fetchTenantSchema,
+    tenantLoginSchema
+} from '../../validators/tenant.validator';
 
 const router = Router();
 
-router.post('/tenant', async (req, res) => {
-    try {
-        const { name, email }: CreateTenantRequest = req.body;
+export const CREATE_TENANT_ENDPOINT =
+    '/tenant';
 
-        if (!name || !email) {
-            return res.status(400).json({ error: 'Name and email are required' });
-        }
+export const FETCH_TENANT_ENDPOINT =
+    '/tenant/:tenantId';
 
-        // Check if tenant already exists
-        const existingTenant = await prisma.tenant.findUnique({
-            where: { email },
-        });
+export const LOGIN_TENANT_ENDPOINT =
+    '/tenant/login';
 
-        if (existingTenant) {
-            return res.status(409).json({ error: 'Tenant with this email already exists' });
-        }
+export const REFRESH_AUTH_TOKEN_ENDPOINT =
+    '/tenant/refresh-token';
 
-        const apiKey = uuidv4();
+router.post(
+    CREATE_TENANT_ENDPOINT,
+    validateBody(createTenantSchema),
+    createTenant,
+);
+router.post(
+    LOGIN_TENANT_ENDPOINT,
+    validateBody(tenantLoginSchema),
+    loginTenant,
+);
 
-        const tenant = await prisma.tenant.create({
-            data: {
-                name,
-                email,
-                apiKey,
-                status: 'ACTIVE',
-            },
-        });
+router.post(
+    REFRESH_AUTH_TOKEN_ENDPOINT,
+    validateBody(refreshAuthTokenSchema),
+    refreshAuthToken,
+);
 
-        res.status(201).json({
-            id: tenant.id,
-            name: tenant.name,
-            email: tenant.email,
-            apiKey: tenant.apiKey,
-            status: tenant.status,
-        });
-    } catch (error) {
-        console.error('Error creating tenant:', error);
-        res.status(500).json({ error: 'Failed to create tenant' });
-    }
-});
-
-router.get('/tenant/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        const tenant = await prisma.tenant.findUnique({
-            where: { id },
-            include: {
-                _count: {
-                    select: { documents: true, queries: true },
-                },
-            },
-        });
-
-        if (!tenant) {
-            return res.status(404).json({ error: 'Tenant not found' });
-        }
-
-        res.json({
-            id: tenant.id,
-            name: tenant.name,
-            email: tenant.email,
-            status: tenant.status,
-            createdAt: tenant.createdAt,
-            documentCount: tenant._count.documents,
-            queryCount: tenant._count.queries,
-        });
-    } catch (error) {
-        console.error('Error fetching tenant:', error);
-        res.status(500).json({ error: 'Failed to fetch tenant' });
-    }
-});
+router.get(
+    FETCH_TENANT_ENDPOINT,
+    validateParams(fetchTenantSchema),
+    fetchTenant as any,
+);
 
 export default router;
