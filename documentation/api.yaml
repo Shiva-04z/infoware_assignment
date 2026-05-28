@@ -1,469 +1,491 @@
 openapi: 3.0.3
 info:
-  title: Multi-Tenant RAG System API
-  version: 1.0.0
+  title: Multi-Tenant RAG API
   description: |
-    Production-ready Retrieval-Augmented Generation (RAG) system with strict multi-tenant isolation.
+    Production-style multi-tenant Retrieval-Augmented Generation (RAG) API.
+
+    Organizations (tenants) upload PDF/TXT documents, which are chunked, embedded, and stored in PostgreSQL and Qdrant.
+    Tenants query their private knowledge base with natural-language questions; answers are generated via Gemini using tenant-filtered vector search.
+
+    **Roles**
+    - **Admin** — bootstrap via `POST /api/admin`, then create tenants and fetch tenant details (JWT with `role: Admin`)
+    - **Tenant (User)** — login, upload/list/delete documents, run RAG queries
+
+    **Admin endpoints**
+    - `POST /api/admin` — Create admin (no authentication; assigns `Admin` role)
+    - `POST /api/tenant` — Create tenant (admin JWT required)
+    - `GET /api/tenant/{tenantId}` — Fetch tenant (admin JWT required)
+
+    **Isolation**
+    - Vector search filters by `tenant_id`
+    - `tenantId` in the URL must match the JWT `tenantId` for tenant-scoped routes
+
+    **Rate limits**
+    - IP-based: 10 requests / minute (login, refresh, admin bootstrap, fetch tenant)
+    - Identity-based: 100 requests / minute (tenant-authenticated routes)
+  version: 1.0.0
+  contact:
+    name: API Support
 
 servers:
   - url: http://localhost:3000
-    description: Local
+    description: Local development
 
 tags:
   - name: Health
+    description: Service health and dependency checks
   - name: Admin
-  - name: Tenant
+    description: |
+      Admin account bootstrap and tenant management.
+      `POST /api/admin` is public (no JWT). Other operations in this tag require an admin JWT.
+  - name: Authentication
+    description: Tenant login and token refresh
   - name: Documents
+    description: Document upload, listing, and deletion (tenant-scoped)
   - name: Query
+    description: RAG knowledge-base queries (tenant-scoped)
 
 paths:
   /health:
     get:
       tags: [Health]
       summary: Health check
-      description: Checks service health for database, Qdrant, and Redis.
+      description: Verifies connectivity to PostgreSQL, Qdrant, and Redis.
+      operationId: getHealth
       responses:
-        "200":
-          description: All services healthy
+        '200':
+          description: All dependencies are healthy
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthResponse"
-        "503":
-          description: One or more services unhealthy
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: One or more dependencies are down
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthResponse"
+                $ref: '#/components/schemas/HealthResponse'
 
-                /api/admin:
-                  post:
-                    tags: [ Admin ]
-                    summary: Create Admin
-                    requestBody:
-                      required: true
-                      content:
-                        application/json:
-                          schema:
-                            $ref: "#/components/schemas/CreateTenantRequest"
-                          examples:
-                            example:
-                              value:
-                                name: Acme Inc
-                                email: admin@acme.com
-                                password: "secret123"
-                    responses:
-                      "201":
-                        description: Tenant created
-                        content:
-                          application/json:
-                            schema:
-                              $ref: "#/components/schemas/CreateTenantResponseEnvelope"
-                      "400":
-                        description: Validation error
-                        content:
-                          application/json:
-                            schema:
-                              $ref: "#/components/schemas/ErrorEnvelope"
-                      "409":
-                        description: Tenant already exists
-                        content:
-                          application/json:
-                            schema:
-                              $ref: "#/components/schemas/ErrorEnvelope"
-                      "500":
-                        description: Server error
-                        content:
-                          application/json:
-                            schema:
-                              $ref: "#/components/schemas/ErrorEnvelope"
+  /api/admin:
+    post:
+      tags: [Admin]
+      summary: Create admin
+      description: |
+        Registers a new **admin** account. No `Authorization` header required.
+
+        Same request body as tenant registration (`name`, `email`, `password`). The created user
+        receives `role: Admin` and JWT tokens for subsequent admin-only calls.
+      operationId: createAdmin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAdminBody'
+            examples:
+              default:
+                summary: Create admin account
+                value:
+                  name: Platform Admin
+                  email: admin@example.com
+                  password: adminpass1
+      responses:
+        '201':
+          description: Admin created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminAuthData'
+              examples:
+                default:
+                  summary: Successful admin registration
+                  value:
+                    success: true
+                    message: Tenant created successfully
+                    data:
+                      id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      name: Platform Admin
+                      email: admin@example.com
+                      status: ACTIVE
+                      authToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                      refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/tenant:
     post:
-      tags: [Tenant]
+      tags: [Admin]
       summary: Create tenant
+      description: Creates a new tenant organization. Requires admin JWT.
+      operationId: createTenant
       security:
-        - adminAuth: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateTenantRequest"
-            examples:
-              example:
-                value:
-                  name: Acme Inc
-                  email: tenant@acme.com
-                  password: "secret123"
-                  role: Admin
+              $ref: '#/components/schemas/CreateTenantBody'
       responses:
-        "201":
-          description: Tenant created
+        '201':
+          description: Tenant created successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CreateTenantResponseEnvelope"
-        "400":
-          description: Validation error
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TenantAuthData'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Email already registered
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "409":
-          description: Tenant already exists
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          description: Server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/tenant/login:
     post:
-      tags: [Tenant]
+      tags: [Authentication]
       summary: Tenant login
+      description: Authenticates a tenant with email and password. Returns access and refresh tokens.
+      operationId: loginTenant
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/TenantLoginRequest"
-            examples:
-              example:
-                value:
-                  email: admin@acme.com
-                  password: "secret123"
+              $ref: '#/components/schemas/TenantLoginBody'
       responses:
-        "200":
-          description: Tenant logged in
+        '200':
+          description: Login successful
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TenantLoginResponseEnvelope"
-        "400":
-          description: Invalid credentials / validation error
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TenantLoginData'
+        '400':
+          description: Tenant not found or validation error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          description: Server error
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Invalid password
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-
-  /api/tenant/{tenantId}:
-    get:
-      tags: [Tenant]
-      summary: Fetch tenant
-      security:
-        - adminAuth: []
-      parameters:
-        - name: tenantId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Tenant fetched
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/FetchTenantResponseEnvelope"
-        "401":
-          description: Authorization token is required / authentication failed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          description: Invalid tenant access / invalid tenant
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "404":
-          description: Tenant not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          description: Server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/tenant/refresh-token:
     post:
-      tags: [Tenant]
-      summary: Refresh auth token
+      tags: [Authentication]
+      summary: Refresh access token
+      description: Issues a new JWT access token using a valid refresh token.
+      operationId: refreshAuthToken
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RefreshTokenRequest"
-            examples:
-              example:
-                value:
-                  refreshToken: "<refresh token>"
+              $ref: '#/components/schemas/RefreshTokenBody'
       responses:
-        "200":
-          description: Auth token refreshed
+        '200':
+          description: Token refreshed successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RefreshAuthTokenResponseEnvelope"
-        "400":
-          description: Refresh token missing
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RefreshTokenData'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Invalid or expired refresh token
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Invalid refresh token
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "404":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
           description: Tenant not found
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/tenant/{tenantId}:
+    get:
+      tags: [Admin]
+      summary: Fetch tenant details
+      description: Returns tenant profile and document/query counts. Requires admin JWT.
+      operationId: fetchTenant
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/tenantIdPath'
+      responses:
+        '200':
+          description: Tenant fetched successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TenantDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/{tenantId}/documents:
     post:
       tags: [Documents]
-      summary: Upload a document
+      summary: Upload document
       description: |
-        Upload a PDF or TXT file for a tenant. Processing starts asynchronously.
-        The uploaded form field name must be `file`.
+        Uploads a PDF or plain-text file for ingestion. Text is extracted, chunked, embedded with Gemini,
+        and stored in PostgreSQL and Qdrant. Processing runs synchronously in the request lifecycle.
+
+        **Allowed MIME types:** `application/pdf`, `text/plain`
+        **Max file size:** 10 MB
+      operationId: uploadDocument
       security:
         - bearerAuth: []
       parameters:
-        - name: tenantId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/tenantIdPath'
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
               type: object
+              required: [file]
               properties:
                 file:
                   type: string
                   format: binary
+                  description: PDF or TXT file to ingest
                 metadata:
-                  description: JSON string (parsed server-side)
-                  type: string
-              required: [file]
+                  oneOf:
+                    - type: string
+                      description: JSON string of arbitrary metadata
+                    - type: object
+                      additionalProperties: true
+                  description: Optional metadata attached to chunks
       responses:
-        "202":
-          description: Document uploaded and processing started
+        '202':
+          description: Document accepted and processing completed (or started)
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UploadDocumentResponseEnvelope"
-        "400":
-          description: No file uploaded / invalid input
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DocumentUploadResult'
+        '400':
+          description: Missing file, invalid type, or validation error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Authorization token is required
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: File exceeds 10 MB limit
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          description: Invalid tenant access / invalid tenant
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "413":
-          description: File too large (max 10MB)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RawError"
-        "500":
-          description: Server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: File too large. Maximum size is 10MB.
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalError'
     get:
       tags: [Documents]
       summary: List documents
+      description: Returns a paginated list of documents for the authenticated tenant.
+      operationId: fetchDocuments
       security:
         - bearerAuth: []
       parameters:
-        - name: tenantId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/tenantIdPath'
         - name: page
           in: query
-          required: false
+          description: Page number (1-based). Defaults to 1.
           schema:
-            type: integer
-            minimum: 1
-            default: 1
+            type: string
+            example: '1'
         - name: limit
           in: query
-          required: false
+          description: Page size. Defaults to 10.
           schema:
-            type: integer
-            minimum: 1
-            default: 10
+            type: string
+            example: '10'
       responses:
-        "200":
-          description: Documents fetched
+        '200':
+          description: Documents fetched successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/FetchDocumentsResponseEnvelope"
-        "401":
-          description: Authorization token is required
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          description: Invalid tenant access / invalid tenant
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          description: Server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DocumentListResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/{tenantId}/documents/{documentId}:
     delete:
       tags: [Documents]
-      summary: Delete (soft-delete) a document
+      summary: Delete document
+      description: |
+        Soft-deletes the document (status `DELETED`), removes associated chunks from PostgreSQL,
+        and deletes vectors from Qdrant.
+      operationId: deleteDocument
       security:
         - bearerAuth: []
       parameters:
-        - name: tenantId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/tenantIdPath'
         - name: documentId
           in: path
           required: true
+          description: Document UUID
           schema:
             type: string
+            format: uuid
       responses:
-        "200":
-          description: Document deleted
+        '200':
+          description: Document deleted successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessEnvelope"
-        "401":
-          description: Authorization token is required
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          description: Invalid tenant access / invalid tenant
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          description: Server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/{tenantId}/query:
     post:
       tags: [Query]
-      summary: Process a query (RAG)
+      summary: Query knowledge base
+      description: |
+        Runs the RAG pipeline: embed query → tenant-filtered vector search in Qdrant →
+        context assembly → Gemini answer generation.
+
+        Includes guardrails for prompt injection, low confidence, and empty retrieval.
+        Repeated identical queries may be served from Redis cache (TTL 1 hour).
+      operationId: processQuery
       security:
         - bearerAuth: []
       parameters:
-        - name: tenantId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/tenantIdPath'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ProcessQueryRequest"
-            examples:
-              example:
-                value:
-                  query: What is our refund policy?
-                  topK: 5
-                  minConfidence: 0.7
+              $ref: '#/components/schemas/ProcessQueryBody'
       responses:
-        "200":
-          description: Query processed
+        '200':
+          description: Query processed successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProcessQueryResponseEnvelope"
-        "400":
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Authorization token is required
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          description: Invalid tenant access / invalid tenant
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "429":
-          description: Too many requests
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          description: Server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/QueryResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
 components:
   securitySchemes:
@@ -471,16 +493,66 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-    adminAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+      description: |
+        JWT access token from login, tenant creation, or refresh.
+        For tenant-scoped routes, the token `tenantId` must match the path `{tenantId}`.
+        Admin routes require `role: Admin` in the token payload.
+
+  parameters:
+    tenantIdPath:
+      name: tenantId
+      in: path
+      required: true
+      description: Tenant UUID (must match JWT for tenant-authenticated routes)
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    ValidationError:
+      description: Request validation failed (Zod)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: Tenant mismatch, inactive tenant, or insufficient role
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    RateLimitError:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: Too many requests. Please try again later.
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/ErrorEnvelope'
+              - type: object
+                properties:
+                  error:
+                    type: string
+                    example: Internal server error
 
   schemas:
-    # Generic envelopes used across the API
     SuccessEnvelope:
       type: object
-      additionalProperties: false
+      required: [success, message]
       properties:
         success:
           type: boolean
@@ -488,12 +560,11 @@ components:
         message:
           type: string
         data:
-          nullable: true
-      required: [success, message]
+          description: Response payload (omitted on some success responses)
 
     ErrorEnvelope:
       type: object
-      additionalProperties: false
+      required: [success, message]
       properties:
         success:
           type: boolean
@@ -501,326 +572,11 @@ components:
         message:
           type: string
         error:
-          nullable: true
-      required: [success, message]
-
-    # Used by the global error handler for 413 (LIMIT_FILE_SIZE)
-    RawError:
-      type: object
-      additionalProperties: false
-      properties:
-        error:
-          type: string
-      required: [error]
-
-    CreateTenantRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        name:
-          type: string
-          minLength: 1
-        email:
-          type: string
-          format: email
-        password:
-          type: string
-          minLength: 6
-          maxLength: 14
-        role:
-          $ref: "#/components/schemas/Role"
-      required: [name, email, password]
-
-    TenantLoginRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        email:
-          type: string
-          format: email
-        password:
-          type: string
-          minLength: 6
-          maxLength: 14
-      required: [email, password]
-
-    TenantStatus:
-      type: string
-      enum: [ACTIVE, INACTIVE, SUSPENDED]
-    Role:
-      type: string
-      enum: [ADMIN, USER]
-
-    CreateTenantResponseEnvelope:
-      type: object
-      additionalProperties: false
-      properties:
-        success:
-          type: boolean
-          enum: [true]
-        message:
-          type: string
-        data:
-          type: object
-          additionalProperties: false
-          properties:
-            id:
-              type: string
-            name:
-              type: string
-            email:
-              type: string
-              format: email
-            status:
-              $ref: "#/components/schemas/TenantStatus"
-            role:
-              $ref: "#/components/schemas/Role"
-            authToken:
-              type: string
-            refreshToken:
-              type: string
-          required: [id, name, email, status, role, authToken, refreshToken]
-      required: [success, message, data]
-
-    TenantLoginResponseEnvelope:
-      type: object
-      additionalProperties: false
-      properties:
-        success:
-          type: boolean
-          enum: [true]
-        message:
-          type: string
-        data:
-          type: object
-          additionalProperties: false
-          properties:
-            id:
-              type: string
-            name:
-              type: string
-            email:
-              type: string
-              format: email
-            status:
-              $ref: "#/components/schemas/TenantStatus"
-            authToken:
-              type: string
-            refreshToken:
-              type: string
-          required: [id, name, email, status, authToken, refreshToken]
-      required: [success, message, data]
-
-    FetchTenantResponseEnvelope:
-      type: object
-      additionalProperties: false
-      properties:
-        success:
-          type: boolean
-          enum: [true]
-        message:
-          type: string
-        data:
-          type: object
-          additionalProperties: false
-          properties:
-            id:
-              type: string
-            name:
-              type: string
-            email:
-              type: string
-              format: email
-            status:
-              $ref: "#/components/schemas/TenantStatus"
-            role:
-              $ref: "#/components/schemas/Role"
-            createdAt:
-              type: string
-              format: date-time
-            documentCount:
-              type: integer
-              minimum: 0
-            queryCount:
-              type: integer
-              minimum: 0
-          required: [id, name, email, status, role, createdAt, documentCount, queryCount]
-      required: [success, message, data]
-
-    RefreshTokenRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        refreshToken:
-          type: string
-          minLength: 1
-      required: [refreshToken]
-
-    RefreshAuthTokenResponseEnvelope:
-      type: object
-      additionalProperties: false
-      properties:
-        success:
-          type: boolean
-          enum: [true]
-        message:
-          type: string
-        data:
-          type: object
-          additionalProperties: false
-          properties:
-            authToken:
-              type: string
-          required: [authToken]
-      required: [success, message, data]
-
-    DocumentStatus:
-      type: string
-      enum: [PROCESSING, COMPLETED, FAILED, DELETED]
-
-    UploadDocumentResponseEnvelope:
-      type: object
-      additionalProperties: false
-      properties:
-        success:
-          type: boolean
-          enum: [true]
-        message:
-          type: string
-        data:
-          type: object
-          additionalProperties: false
-          properties:
-            id:
-              type: string
-            filename:
-              type: string
-            status:
-              $ref: "#/components/schemas/DocumentStatus"
-          required: [id, filename, status]
-      required: [success, message, data]
-
-    DocumentListItem:
-      type: object
-      additionalProperties: false
-      properties:
-        id:
-          type: string
-        filename:
-          type: string
-        fileSize:
-          type: integer
-        mimeType:
-          type: string
-        status:
-          $ref: "#/components/schemas/DocumentStatus"
-        chunkCount:
-          type: integer
-        uploadedAt:
-          type: string
-          format: date-time
-        processedAt:
-          type: string
-          format: date-time
-          nullable: true
-      required: [id, filename, fileSize, mimeType, status, chunkCount, uploadedAt, processedAt]
-
-    FetchDocumentsResponseEnvelope:
-      type: object
-      additionalProperties: false
-      properties:
-        success:
-          type: boolean
-          enum: [true]
-        message:
-          type: string
-        data:
-          type: object
-          additionalProperties: false
-          properties:
-            documents:
-              type: array
-              items:
-                $ref: "#/components/schemas/DocumentListItem"
-            total:
-              type: integer
-              minimum: 0
-            page:
-              type: integer
-              minimum: 1
-            limit:
-              type: integer
-              minimum: 1
-          required: [documents, total, page, limit]
-      required: [success, message, data]
-
-    ProcessQueryRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        query:
-          type: string
-          minLength: 1
-          maxLength: 500
-        topK:
-          type: number
-          minimum: 1
-          maximum: 10
-        minConfidence:
-          type: number
-          minimum: 0
-          maximum: 1
-      required: [query]
-
-    SourceDocument:
-      type: object
-      additionalProperties: false
-      properties:
-        id:
-          type: string
-        content:
-          type: string
-        filename:
-          type: string
-        score:
-          type: number
-        metadata:
-          type: object
-          additionalProperties: true
-      required: [id, content, filename, score, metadata]
-
-    QueryResponse:
-      type: object
-      additionalProperties: false
-      properties:
-        answer:
-          type: string
-        sources:
-          type: array
-          items:
-            $ref: "#/components/schemas/SourceDocument"
-        confidence:
-          type: number
-        guardrailTriggered:
-          type: boolean
-      required: [answer, sources, confidence, guardrailTriggered]
-
-    ProcessQueryResponseEnvelope:
-      type: object
-      additionalProperties: false
-      properties:
-        success:
-          type: boolean
-          enum: [true]
-        message:
-          type: string
-        data:
-          $ref: "#/components/schemas/QueryResponse"
-      required: [success, message, data]
+          description: Optional error detail (Zod issues, stack trace in development, etc.)
 
     HealthResponse:
       type: object
-      additionalProperties: false
+      required: [status, timestamp, services]
       properties:
         status:
           type: string
@@ -830,7 +586,7 @@ components:
           format: date-time
         services:
           type: object
-          additionalProperties: false
+          required: [database, qdrant, redis]
           properties:
             database:
               type: string
@@ -841,5 +597,372 @@ components:
             redis:
               type: string
               enum: [up, down, unknown]
-          required: [database, qdrant, redis]
-      required: [status, timestamp, services]
+
+    Role:
+      type: string
+      enum: [Admin, User]
+      description: Tenant role (Prisma `Role` enum)
+
+    TenantStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE, SUSPENDED]
+      description: Tenant account status (Prisma `Status` enum)
+
+    DocumentStatus:
+      type: string
+      enum: [PROCESSING, COMPLETED, FAILED, DELETED]
+      description: Document processing status (Prisma `DocumentStatus` enum)
+
+    CreateTenantBody:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          example: Acme Corp
+        email:
+          type: string
+          format: email
+          example: tenant@acme.com
+        password:
+          type: string
+          minLength: 6
+          maxLength: 14
+          format: password
+          example: secret12
+
+    CreateAdminBody:
+      description: Request body for `POST /api/admin` (same validation as tenant creation)
+      allOf:
+        - $ref: '#/components/schemas/CreateTenantBody'
+      example:
+        name: Platform Admin
+        email: admin@example.com
+        password: adminpass1
+
+    AdminAuthData:
+      description: Response data from `POST /api/admin`
+      allOf:
+        - $ref: '#/components/schemas/TenantAuthData'
+        - type: object
+          properties:
+            role:
+              $ref: '#/components/schemas/Role'
+              example: Admin
+
+    TenantLoginBody:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+          maxLength: 14
+          format: password
+
+    RefreshTokenBody:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+          description: Refresh token issued at login or registration
+
+    TenantAuthData:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          $ref: '#/components/schemas/TenantStatus'
+        authToken:
+          type: string
+          description: JWT access token
+        refreshToken:
+          type: string
+          description: JWT refresh token
+
+    TenantLoginData:
+      allOf:
+        - $ref: '#/components/schemas/TenantAuthData'
+        - type: object
+          properties:
+            role:
+              $ref: '#/components/schemas/Role'
+
+    RefreshTokenData:
+      type: object
+      required: [authToken]
+      properties:
+        authToken:
+          type: string
+          description: New JWT access token
+
+    TenantDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          $ref: '#/components/schemas/TenantStatus'
+        createdAt:
+          type: string
+          format: date-time
+        documentCount:
+          type: integer
+          minimum: 0
+        queryCount:
+          type: integer
+          minimum: 0
+
+    DocumentUploadResult:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        status:
+          $ref: '#/components/schemas/DocumentStatus'
+
+    DocumentSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        fileSize:
+          type: integer
+          description: Size in bytes
+        mimeType:
+          type: string
+          example: application/pdf
+        status:
+          $ref: '#/components/schemas/DocumentStatus'
+        chunkCount:
+          type: integer
+          minimum: 0
+        uploadedAt:
+          type: string
+          format: date-time
+        processedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    DocumentListResult:
+      type: object
+      properties:
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentSummary'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+
+    ProcessQueryBody:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Natural-language question
+          example: What is the refund policy?
+        topK:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 5
+          description: Number of chunks to retrieve (capped at 10 server-side)
+        minConfidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          default: 0.7
+          description: Minimum vector similarity score threshold
+
+    SourceDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Chunk or source identifier
+        content:
+          type: string
+          description: Retrieved chunk text
+        filename:
+          type: string
+        score:
+          type: number
+          format: float
+          description: Vector similarity score
+        metadata:
+          type: object
+          additionalProperties: true
+
+    QueryResult:
+      type: object
+      required: [answer, sources, confidence, guardrailTriggered]
+      properties:
+        answer:
+          type: string
+          description: LLM-generated answer grounded in retrieved context
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceDocument'
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Average retrieval score used as confidence
+        guardrailTriggered:
+          type: boolean
+          description: True when prompt injection or safety guardrails blocked a normal answer
+
+    Tenant:
+      type: object
+      description: Full tenant record (database model reference)
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          $ref: '#/components/schemas/TenantStatus'
+        role:
+          $ref: '#/components/schemas/Role'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Document:
+      type: object
+      description: Full document record (database model reference)
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        fileSize:
+          type: integer
+        mimeType:
+          type: string
+        status:
+          $ref: '#/components/schemas/DocumentStatus'
+        chunkCount:
+          type: integer
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+        uploadedAt:
+          type: string
+          format: date-time
+        processedAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+
+    DocumentChunk:
+      type: object
+      description: Text chunk stored for RAG retrieval (database model reference)
+      properties:
+        id:
+          type: string
+          format: uuid
+        documentId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        content:
+          type: string
+        chunkIndex:
+          type: integer
+        vectorId:
+          type: string
+          format: uuid
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    QueryLog:
+      type: object
+      description: Persisted query audit log (database model reference)
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        query:
+          type: string
+        response:
+          type: string
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceDocument'
+        confidence:
+          type: number
+          format: float
+        latency:
+          type: integer
+          description: Response time in milliseconds
+        guardrailTriggered:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time

@@ -142,7 +142,10 @@ No cross-tenant data access is possible by design.
 
 ## 🧭 API Endpoints
 
-### Tenant (Admin Only)
+### Admin
+- POST /admin → Create admin (no authentication; bootstrap first admin)
+
+### Tenant (Admin JWT Required)
 - POST /tenant → Create tenant
 - GET /tenant/:tenantId → Fetch tenant
 
