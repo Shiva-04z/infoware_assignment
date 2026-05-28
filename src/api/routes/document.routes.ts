@@ -5,6 +5,7 @@ import { tenantAuthMiddleware } from '../../middlewares/auth.middleware';
 
 import { validateBody,validateQuery,validateParams } from '../../middlewares/validation.middleware';
 
+import {fileRequiredMiddleware} from '../../middlewares/file.required.middleware'
 import {ipRateLimiter,identityRateLimiter} from  '../../middlewares/rate.limit.middleware';
 import {
     uploadDocument,
@@ -34,6 +35,7 @@ export const FETCH_DOCUMENTS_ENDPOINT =
 export const DELETE_DOCUMENT_ENDPOINT =
     '/:tenantId/documents/:documentId';
 
+
 router.use(
     TENANT_BASE_ENDPOINT,
     tenantAuthMiddleware,
@@ -45,6 +47,7 @@ router.post(
     uploadFile.single(
         'file',
     ),
+    fileRequiredMiddleware,
     validateBody(uploadDocumentSchema),
     uploadDocument as any,
 );

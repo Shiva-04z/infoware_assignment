@@ -82,6 +82,8 @@ paths:
     post:
       tags: [Tenant]
       summary: Create tenant
+      security:
+        - adminAuth: []
       requestBody:
         required: true
         content:
@@ -94,6 +96,7 @@ paths:
                   name: Acme Inc
                   email: tenant@acme.com
                   password: "secret123"
+                  role: Admin
       responses:
         "201":
           description: Tenant created
@@ -160,7 +163,7 @@ paths:
       tags: [Tenant]
       summary: Fetch tenant
       security:
-        - bearerAuth: []
+        - adminAuth: []
       parameters:
         - name: tenantId
           in: path
@@ -468,6 +471,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    adminAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
 
   schemas:
     # Generic envelopes used across the API
@@ -520,6 +527,8 @@ components:
           type: string
           minLength: 6
           maxLength: 14
+        role:
+          $ref: "#/components/schemas/Role"
       required: [name, email, password]
 
     TenantLoginRequest:
@@ -538,6 +547,9 @@ components:
     TenantStatus:
       type: string
       enum: [ACTIVE, INACTIVE, SUSPENDED]
+    Role:
+      type: string
+      enum: [ADMIN, USER]
 
     CreateTenantResponseEnvelope:
       type: object
@@ -561,11 +573,13 @@ components:
               format: email
             status:
               $ref: "#/components/schemas/TenantStatus"
+            role:
+              $ref: "#/components/schemas/Role"
             authToken:
               type: string
             refreshToken:
               type: string
-          required: [id, name, email, status, authToken, refreshToken]
+          required: [id, name, email, status, role, authToken, refreshToken]
       required: [success, message, data]
 
     TenantLoginResponseEnvelope:
@@ -619,6 +633,8 @@ components:
               format: email
             status:
               $ref: "#/components/schemas/TenantStatus"
+            role:
+              $ref: "#/components/schemas/Role"
             createdAt:
               type: string
               format: date-time
@@ -628,7 +644,7 @@ components:
             queryCount:
               type: integer
               minimum: 0
-          required: [id, name, email, status, createdAt, documentCount, queryCount]
+          required: [id, name, email, status, role, createdAt, documentCount, queryCount]
       required: [success, message, data]
 
     RefreshTokenRequest:
