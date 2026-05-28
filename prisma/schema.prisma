@@ -1,0 +1,79 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Tenant {
+  id        String     @id @default(uuid())
+  name      String
+  password  String
+  email     String     @unique
+  status    Status     @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  documents Document[]
+  queries   QueryLog[]
+}
+
+model Document {
+  id          String          @id @default(uuid())
+  tenantId    String
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  filename    String
+  fileSize    Int
+  mimeType    String
+  status      DocumentStatus  @default(PROCESSING)
+  chunkCount  Int             @default(0)
+  metadata    Json?
+  uploadedAt  DateTime        @default(now())
+  processedAt DateTime?
+  chunks      DocumentChunk[]
+  updatedAt   DateTime        @updatedAt
+}
+
+model DocumentChunk {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  tenantId   String
+  content    String   @db.Text
+  chunkIndex Int
+  vectorId   String   @unique
+  metadata   Json?
+  createdAt  DateTime @default(now())
+}
+
+model QueryLog {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id])
+  query              String   @db.Text
+  response           String   @db.Text
+  sources            Json
+  confidence         Float
+  latency            Int
+  guardrailTriggered Boolean  @default(false)
+  createdAt          DateTime @default(now())
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum DocumentStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+  DELETED
+}

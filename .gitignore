@@ -8,4 +8,10 @@ yarn-error.log*
 /.pnp
 .pnp.js
 
+
+.env
+dist/
+node_modules/
 .vscode/*
+
+/src/generated/prisma
