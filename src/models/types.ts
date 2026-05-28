@@ -7,12 +7,8 @@ export  type ChunkRow = {
 };
 
 
+import { Role } from '../generated/prisma/enums';
 
-export interface SourceDocument {
-    id: string;
-    content: string;
-    filename: string;
-    score: number;
-    metadata?: Record<string, any>;
-}
+
+
 

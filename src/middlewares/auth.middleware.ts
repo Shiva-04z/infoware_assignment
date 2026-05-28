@@ -104,3 +104,86 @@ export const tenantAuthMiddleware =
             );
         }
     };
+
+
+export const AdminAuthMiddleware =
+    async (
+        req: Request,
+        res: Response,
+        next: NextFunction,
+    ) => {
+        try {
+
+            const token =
+                req.headers.authorization?.replace(
+                    'Bearer ',
+                    '',
+                );
+
+            if (!token) {
+                return errorResponse(
+                    res,
+                    401,
+                    'Authorization token is required',
+                );
+            }
+
+            const decoded =
+                verifyAuthToken(
+                    token,
+                ) as {
+                    tenantId: string;
+                    email: string;
+                    role: string;
+                };
+
+            if (
+                decoded.role !==
+                "Admin"
+            ) {
+                return errorResponse(
+                    res,
+                    403,
+                    'Invalid tenant access',
+                );
+            }
+
+            const tenant =
+                await prisma.tenant.findFirst({
+                    where: {
+                        id: decoded.tenantId,
+                        email:
+                        decoded.email,
+                        status: 'ACTIVE',
+                    },
+                });
+
+            if (!tenant) {
+                return errorResponse(
+                    res,
+                    403,
+                    'Invalid tenant',
+                );
+            }
+
+            (
+                req as Request & {
+                    tenant: typeof tenant;
+                }
+            ).tenant = tenant;
+
+            next();
+        } catch (error) {
+            console.error(
+                'Auth error:',
+                error,
+            );
+
+            return errorResponse(
+                res,
+                401,
+                'Authentication failed',
+                error,
+            );
+        }
+    };

@@ -20,6 +20,7 @@ model Tenant {
   status    Status     @default(ACTIVE)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+  role      Role       @default(User)
   documents Document[]
   queries   QueryLog[]
 }
@@ -76,4 +77,9 @@ enum DocumentStatus {
   COMPLETED
   FAILED
   DELETED
+}
+
+enum Role {
+  Admin
+  User
 }

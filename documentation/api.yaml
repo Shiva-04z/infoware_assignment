@@ -11,6 +11,7 @@ servers:
 
 tags:
   - name: Health
+  - name: Admin
   - name: Tenant
   - name: Documents
   - name: Query
@@ -35,6 +36,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
 
+                /api/admin:
+                  post:
+                    tags: [ Admin ]
+                    summary: Create Admin
+                    requestBody:
+                      required: true
+                      content:
+                        application/json:
+                          schema:
+                            $ref: "#/components/schemas/CreateTenantRequest"
+                          examples:
+                            example:
+                              value:
+                                name: Acme Inc
+                                email: admin@acme.com
+                                password: "secret123"
+                    responses:
+                      "201":
+                        description: Tenant created
+                        content:
+                          application/json:
+                            schema:
+                              $ref: "#/components/schemas/CreateTenantResponseEnvelope"
+                      "400":
+                        description: Validation error
+                        content:
+                          application/json:
+                            schema:
+                              $ref: "#/components/schemas/ErrorEnvelope"
+                      "409":
+                        description: Tenant already exists
+                        content:
+                          application/json:
+                            schema:
+                              $ref: "#/components/schemas/ErrorEnvelope"
+                      "500":
+                        description: Server error
+                        content:
+                          application/json:
+                            schema:
+                              $ref: "#/components/schemas/ErrorEnvelope"
+
   /api/tenant:
     post:
       tags: [Tenant]
@@ -49,7 +92,7 @@ paths:
               example:
                 value:
                   name: Acme Inc
-                  email: admin@acme.com
+                  email: tenant@acme.com
                   password: "secret123"
       responses:
         "201":

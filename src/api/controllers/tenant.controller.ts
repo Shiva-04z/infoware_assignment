@@ -1,4 +1,5 @@
 import {Request, Response} from 'express';
+import {Role} from  '../../generated/prisma/enums'
 
 import {v4 as uuidv4} from 'uuid';
 
@@ -6,6 +7,7 @@ import prisma from '../../config/database.config';
 import bcrypt from 'bcryptjs';
 
 import {CreateTenantRequest, FetchTenantRequest, LoginTenantRequest} from '../../models/tenant.request.types';
+
 
 import {
     successResponse,
@@ -17,6 +19,11 @@ import {
     generateRefreshToken,
     verifyRefreshToken,
 } from '../../utils/jwt.utils';
+
+
+
+
+
 
 export const loginTenant = async (req: LoginTenantRequest, res: Response) => {
     try {
@@ -33,6 +40,7 @@ export const loginTenant = async (req: LoginTenantRequest, res: Response) => {
             generateAuthToken({
                 tenantId: tenant.id,
                 email: tenant.email,
+                role:tenant.role.toString()
             });
 
         const refreshToken =
@@ -49,6 +57,7 @@ export const loginTenant = async (req: LoginTenantRequest, res: Response) => {
                 name: tenant.name,
                 email: tenant.email,
                 status: tenant.status,
+                role: tenant.role,
                 authToken,
                 refreshToken,
             },
@@ -102,6 +111,88 @@ export const createTenant = async (
             generateAuthToken({
                 tenantId: tenant.id,
                 email: tenant.email,
+                role: Role.User,
+            });
+
+        const refreshToken =
+            generateRefreshToken({
+                tenantId: tenant.id,
+            });
+
+        return successResponse(
+            res,
+            201,
+            'Tenant created successfully',
+            {
+                id: tenant.id,
+                name: tenant.name,
+                email: tenant.email,
+                status: tenant.status,
+                authToken,
+                refreshToken,
+            },
+        );
+    } catch (error) {
+        console.error(
+            'Error creating tenant:',
+            error,
+        );
+
+        return errorResponse(
+            res,
+            500,
+            'Failed to create tenant',
+            error,
+        );
+    }
+};
+
+
+export const createAdmin = async (
+    req: CreateTenantRequest,
+    res: Response,
+): Promise<Response | void> => {
+    try {
+        const {
+            name,
+            email,
+            password,
+        } = req.body;
+
+
+        const existingTenant =
+            await prisma.tenant.findUnique({
+                where: {
+                    email,
+                },
+            });
+
+        if (existingTenant) {
+            return errorResponse(
+                res,
+                409,
+                'Tenant with this email already exists',
+            );
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        const tenant =
+            await prisma.tenant.create({
+                data: {
+                    name,
+                    email,
+                    role:Role.Admin,
+                    password: hashedPassword,
+                    status: 'ACTIVE',
+                },
+            });
+
+        const authToken =
+            generateAuthToken({
+                tenantId: tenant.id,
+                email: tenant.email,
+                role: Role.Admin,
             });
 
         const refreshToken =
@@ -242,6 +333,7 @@ export const refreshAuthToken = async (
             generateAuthToken({
                 tenantId: tenant.id,
                 email: tenant.email,
+                role: tenant.role,
             });
 
         return successResponse(
