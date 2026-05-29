@@ -197,7 +197,10 @@ PORT=3000
 
 DATABASE_URL=your_postgres_url
 REDIS_URL=redis://localhost:6379
-
+REDIS_HOST=url
+REDIS_PORT=port
+REDIS_USERNAME=username
+REDIS_PASSWORD=********
 GEMINI_API_KEY=your_gemini_key
 
 JWT_AUTH_SECRET=your_secret

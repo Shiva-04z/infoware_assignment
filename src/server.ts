@@ -16,7 +16,6 @@ const startServer = async () => {
 
 
         await connectRedis();
-        console.log('✅ Redis connected');
 
         await initializeQdrant();
         console.log('✅ Qdrant initialized');
