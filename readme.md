@@ -134,8 +134,9 @@ No cross-tenant data access is possible by design.
 
 ## 📡 API Base Info
 
-- Base URL: http://localhost:3000/api
-- Swagger UI: http://localhost:3000/docs
+- Base URL: https://rag-system-dkkq.onrender.com/api
+- Swagger UI:https://rag-system-dkkq.onrender.com/docs
+- HealthCheck:https://rag-system-dkkq.onrender.com/health
 - OpenAPI Spec: GET /openapi.yaml
 
 ---

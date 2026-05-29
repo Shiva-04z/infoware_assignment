@@ -28,6 +28,9 @@ info:
     name: API Support
 
 servers:
+  - url: https://rag-system-dkkq.onrender.com
+    description: Render Link
+
   - url: http://localhost:3000
     description: Local development
 
