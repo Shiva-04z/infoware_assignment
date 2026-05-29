@@ -8,6 +8,7 @@ import {
     successResponse,
     errorResponse,
 } from '../../utils/response.utils';
+import prisma from "../../config/database.config";
 
 
 export const uploadDocument = async (
@@ -112,6 +113,18 @@ export const deleteDocument = async (
     try {
         const { tenantId, documentId } =
             req.params;
+
+        const  document = await  prisma.document.findUnique(
+            {
+                where:{
+                    id: documentId,
+                }
+            }
+        )
+
+        if (!document) {
+            return errorResponse(res, 404, 'No Document found.');
+        }
 
         await documentService.deleteDocument(
             tenantId,

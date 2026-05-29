@@ -19,7 +19,7 @@ class QueryService {
         const startTime = Date.now();
         let guardrailTriggered = false;
 
-        // Check cache first
+
         const cacheKey = `query:${tenantId}:${request.query}`;
         const cachedResult = await redisClient.get(cacheKey);
         if (cachedResult) {

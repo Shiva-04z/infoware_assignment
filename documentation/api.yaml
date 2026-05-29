@@ -156,7 +156,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/TenantAuthData'
+                        $ref: '#/components/schemas/CreateTenantData'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -675,6 +675,22 @@ components:
           type: string
           minLength: 1
           description: Refresh token issued at login or registration
+
+
+    CreateTenantData:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          $ref: '#/components/schemas/TenantStatus'
+
 
     TenantAuthData:
       type: object
