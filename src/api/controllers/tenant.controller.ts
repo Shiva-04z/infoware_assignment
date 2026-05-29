@@ -111,17 +111,6 @@ export const createTenant = async (
                 },
             });
 
-        const authToken =
-            generateAuthToken({
-                tenantId: tenant.id,
-                email: tenant.email,
-                role: Role.User,
-            });
-
-        const refreshToken =
-            generateRefreshToken({
-                tenantId: tenant.id,
-            });
 
         return successResponse(
             res,
@@ -132,8 +121,6 @@ export const createTenant = async (
                 name: tenant.name,
                 email: tenant.email,
                 status: tenant.status,
-                authToken,
-                refreshToken,
             },
         );
     } catch (error) {

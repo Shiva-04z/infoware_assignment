@@ -24,20 +24,14 @@ export const AuthMiddleware =
     ) => {
         try {
 
-            const tenantId = req.params.tenantId;
+            const tenantId :string |null = req.params.tenantId  as string ?? null;
             const token =
                 req.headers.authorization?.replace(
                     'Bearer ',
                     '',
                 );
 
-            if (!tenantId) {
-                return errorResponse(
-                    res,
-                    400,
-                    'Tenant ID is required',
-                );
-            }
+
 
             if (!token) {
                 return errorResponse(
@@ -57,6 +51,13 @@ export const AuthMiddleware =
                 };
 
             if (decoded.role == 'User') {
+                if (!tenantId) {
+                    return errorResponse(
+                        res,
+                        400,
+                        'Tenant ID is required',
+                    );
+                }
                 if (
                     decoded.tenantId !==
                     tenantId as String
@@ -87,7 +88,7 @@ export const AuthMiddleware =
                 );
             }
 
-            if (tenant.id != null && tenant.id != req.params.tenantId) {
+            if (tenantId != null && tenant.id != tenantId) {
                 const targetTenant = await prisma.tenant.findFirst(
                     {
                         where: {
