@@ -1,12 +1,16 @@
 import {Request, Response} from 'express';
 import {Role} from  '../../generated/prisma/enums'
 
-import {v4 as uuidv4} from 'uuid';
 
 import prisma from '../../config/database.config';
 import bcrypt from 'bcryptjs';
 
-import {CreateTenantRequest, FetchTenantRequest, LoginTenantRequest} from '../../models/tenant.request.types';
+import {
+    CreateTenantRequest,
+    FetchTenantRequest,
+    LoginTenantRequest,
+    RefreshTokenRequest
+} from '../../models/tenant.request.types';
 
 
 import {
@@ -234,9 +238,7 @@ export const fetchTenant = async (
     res: Response,
 ): Promise<Response | void> => {
     try {
-        const tenantId = req.params.tenantId;
-
-        console.warn(tenantId);
+        const tenantId = req.params.tenantId!;
         const tenant =
             await prisma.tenant.findUnique({
                 where: {
@@ -293,11 +295,11 @@ export const fetchTenant = async (
 
 
 export const refreshAuthToken = async (
-    req: Request,
+    req: RefreshTokenRequest,
     res: Response,
 ): Promise<Response | void> => {
     try {
-        const {refreshToken} = req.body;
+        const  refreshToken = req.body.refreshToken;
 
         if (!refreshToken) {
             return errorResponse(

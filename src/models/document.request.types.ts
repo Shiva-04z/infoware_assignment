@@ -1,4 +1,5 @@
 import  {Request} from  'express'
+import {TenantParams} from './tenant.request.types';
 
 interface DeleteDocumentParams {
     tenantId: string;

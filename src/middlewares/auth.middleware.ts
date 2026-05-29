@@ -4,6 +4,8 @@ import {
     NextFunction,
 } from 'express';
 
+import {TenantParams} from '../models/tenant.request.types'
+
 import prisma from '../config/database.config';
 
 import {
@@ -14,16 +16,15 @@ import {
     errorResponse,
 } from '../utils/response.utils';
 
-export const tenantAuthMiddleware =
+export const AuthMiddleware =
     async (
-        req: Request,
+        req: Request<TenantParams,any,any>,
         res: Response,
         next: NextFunction,
     ) => {
         try {
-            const { tenantId } =
-                req.params;
 
+            const tenantId = req.params.tenantId;
             const token =
                 req.headers.authorization?.replace(
                     'Bearer ',
@@ -52,100 +53,20 @@ export const tenantAuthMiddleware =
                 ) as {
                     tenantId: string;
                     email: string;
-                };
-
-            if (
-                decoded.tenantId !==
-                tenantId
-            ) {
-                return errorResponse(
-                    res,
-                    403,
-                    'Invalid tenant access',
-                );
-            }
-
-            const tenant =
-                await prisma.tenant.findFirst({
-                    where: {
-                        id: tenantId,
-                        email:
-                        decoded.email,
-                        status: 'ACTIVE',
-                    },
-                });
-
-            if (!tenant) {
-                return errorResponse(
-                    res,
-                    403,
-                    'Invalid tenant',
-                );
-            }
-
-            (
-                req as Request & {
-                    tenant: typeof tenant;
-                }
-            ).tenant = tenant;
-
-            next();
-        } catch (error) {
-            console.error(
-                'Auth error:',
-                error,
-            );
-
-            return errorResponse(
-                res,
-                401,
-                'Authentication failed',
-                error,
-            );
-        }
-    };
-
-
-export const AdminAuthMiddleware =
-    async (
-        req: Request,
-        res: Response,
-        next: NextFunction,
-    ) => {
-        try {
-
-            const token =
-                req.headers.authorization?.replace(
-                    'Bearer ',
-                    '',
-                );
-
-            if (!token) {
-                return errorResponse(
-                    res,
-                    401,
-                    'Authorization token is required',
-                );
-            }
-
-            const decoded =
-                verifyAuthToken(
-                    token,
-                ) as {
-                    tenantId: string;
-                    email: string;
                     role: string;
                 };
 
-            if (
-                decoded.role !==
-                "Admin"
-            ) {
-                return errorResponse(
-                    res,
-                    403,
-                    'Invalid tenant access',
-                );
+            if (decoded.role == 'User') {
+                if (
+                    decoded.tenantId !==
+                    tenantId as String
+                ) {
+                    return errorResponse(
+                        res,
+                        403,
+                        'Invalid tenant access',
+                    );
+                }
             }
 
             const tenant =
@@ -166,11 +87,19 @@ export const AdminAuthMiddleware =
                 );
             }
 
-            (
-                req as Request & {
-                    tenant: typeof tenant;
+            if (tenant.id != null && tenant.id != req.params.tenantId) {
+                const targetTenant = await prisma.tenant.findFirst(
+                    {
+                        where: {
+                            id: tenantId
+                        }
+                    }
+                );
+                if (!targetTenant) {
+                    return errorResponse(res, 404, 'No Target Exist');
                 }
-            ).tenant = tenant;
+            }
+
 
             next();
         } catch (error) {

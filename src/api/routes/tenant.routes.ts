@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { validateBody,validateQuery,validateParams } from '../../middlewares/validation.middleware';
 import {ipRateLimiter,identityRateLimiter} from '../../middlewares/rate.limit.middleware'
-import {AdminAuthMiddleware} from '../../middlewares/auth.middleware'
+import {AuthMiddleware} from '../../middlewares/auth.middleware'
 
 import {
     createAdmin,
@@ -39,7 +39,7 @@ export const REFRESH_AUTH_TOKEN_ENDPOINT =
 router.post(
     CREATE_TENANT_ENDPOINT,
     validateBody(createTenantSchema),
-    AdminAuthMiddleware,
+    AuthMiddleware as any,
     identityRateLimiter,
     createTenant,
 );
@@ -67,7 +67,7 @@ router.post(
 router.get(
     FETCH_TENANT_ENDPOINT,
     validateParams(fetchTenantSchema),
-    AdminAuthMiddleware,
+    AuthMiddleware as any,
     ipRateLimiter,
     fetchTenant as any,
 );

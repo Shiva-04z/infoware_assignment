@@ -68,7 +68,7 @@ export const fetchDocuments = async (
     res: Response,
 ): Promise<Response | void> => {
     try {
-        const tenantId  = req.params.tenantId;
+        const tenantId  = req.params.tenantId!;
 
         const page =
             parseInt(req.query.page as string) || 1;

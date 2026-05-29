@@ -1,12 +1,13 @@
-
-import { Router } from 'express';
+import {Router, Request, Response} from 'express';
 import prisma from '../../config/database.config';
 import qdrantClient from '../../config/qdrant.config';
 import redisClient from '../../config/redis.config';
+import {successResponse} from "../../utils/response.utils";
+import {ipRateLimiter} from "../../middlewares/rate.limit.middleware";
 
 const router = Router();
 
-router.get('/health', async (req, res) => {
+const gethealth = async (req: Request, res: Response) => {
     const health = {
         status: 'healthy',
         timestamp: new Date().toISOString(),
@@ -16,8 +17,6 @@ router.get('/health', async (req, res) => {
             redis: 'unknown',
         },
     };
-
-    // Check database
     try {
         await prisma.$queryRaw`SELECT 1`;
         health.services.database = 'up';
@@ -26,7 +25,6 @@ router.get('/health', async (req, res) => {
         health.status = 'unhealthy';
     }
 
-    // Check Qdrant
     try {
         await qdrantClient.getCollections();
         health.services.qdrant = 'up';
@@ -35,7 +33,6 @@ router.get('/health', async (req, res) => {
         health.status = 'unhealthy';
     }
 
-    // Check Redis
     try {
         await redisClient.ping();
         health.services.redis = 'up';
@@ -45,7 +42,8 @@ router.get('/health', async (req, res) => {
     }
 
     const statusCode = health.status === 'healthy' ? 200 : 503;
-    res.status(statusCode).json(health);
-});
+    return successResponse(res, statusCode, "Health Check Successful", health)
+}
 
+router.get('/health', ipRateLimiter, gethealth);
 export default router;

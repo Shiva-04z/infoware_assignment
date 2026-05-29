@@ -1,4 +1,3 @@
-import {SourceDocument} from "./types";
 import {Request} from 'express';
 
  export  interface QueryRequestBody {
